@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en-IN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Kernel &amp; Co. — Nuts, Seeds &amp; Dry Fruits</title>
+  <meta name="description" content="Premium almonds, cashews, walnuts, chia, flax, pumpkin seeds, dates and makhana — packed fresh in India. Free shipping above ₹499, COD available.">
+  <meta name="theme-color" content="#24412B">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,650&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <div class="announce" id="announce">Free shipping above ₹499 · Cash on Delivery available · Packed fresh every week</div>
+
+  <header class="site-header">
+    <div class="wrap header-row">
+      <a href="/" data-link class="brand" aria-label="Home">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32"><path d="M16 3c6 4 9 10 9 15a9 9 0 0 1-18 0c0-5 3-11 9-15z" fill="currentColor"/><path d="M16 8v18" stroke="#F6EEDF" stroke-width="1.6" stroke-linecap="round"/></svg>
+        </span>
+        <span class="brand-name" id="brandName">Kernel &amp; Co.</span>
+      </a>
+
+      <form class="search" id="searchForm" role="search">
+        <input type="search" name="q" id="searchInput" placeholder="Search almonds, chia, makhana…" aria-label="Search products" autocomplete="off">
+        <button type="submit" aria-label="Search">
+          <svg viewBox="0 0 24 24" width="18" height="18"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="m20 20-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+      </form>
+
+      <nav class="header-actions" aria-label="Account and cart">
+        <a href="/account" data-link class="icon-btn" id="accountLink" aria-label="Account">
+          <svg viewBox="0 0 24 24" width="22" height="22"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          <span class="icon-label" id="accountLabel">Login</span>
+        </a>
+        <a href="/cart" data-link class="icon-btn cart-btn" aria-label="Cart">
+          <svg viewBox="0 0 24 24" width="22" height="22"><path d="M3 4h2l2.2 11.2a2 2 0 0 0 2 1.6h7.6a2 2 0 0 0 2-1.5L21 8H6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="9.5" cy="20.5" r="1.3" fill="currentColor"/><circle cx="17" cy="20.5" r="1.3" fill="currentColor"/></svg>
+          <span class="icon-label">Cart</span>
+          <span class="badge" id="cartCount" hidden>0</span>
+        </a>
+      </nav>
+    </div>
+    <nav class="cat-nav" aria-label="Categories">
+      <div class="wrap cat-scroller" id="catNav"></div>
+    </nav>
+  </header>
+
+  <main id="main" tabindex="-1"></main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-grid">
+      <div>
+        <div class="footer-brand" id="footBrand">Kernel &amp; Co.</div>
+        <p class="muted" id="footTag"></p>
+        <p class="small muted" id="footLegal"></p>
+      </div>
+      <div>
+        <h4>Shop</h4>
+        <ul id="footCats"></ul>
+      </div>
+      <div>
+        <h4>Help</h4>
+        <ul>
+          <li><a href="/track" data-link>Track your order</a></li>
+          <li><a href="/pages/shipping" data-link>Shipping policy</a></li>
+          <li><a href="/pages/refunds" data-link>Cancellation &amp; refunds</a></li>
+          <li><a href="/pages/contact" data-link>Contact us</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Legal</h4>
+        <ul>
+          <li><a href="/pages/terms" data-link>Terms &amp; conditions</a></li>
+          <li><a href="/pages/privacy" data-link>Privacy policy</a></li>
+        </ul>
+        <div class="pay-badges" aria-label="Accepted payments">
+          <span>UPI</span><span>Cards</span><span>NetBanking</span><span>Wallets</span><span>COD</span>
+        </div>
+      </div>
+    </div>
+    <div class="wrap footer-base small muted" id="footBase"></div>
+  </footer>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <div class="modal" id="modal" hidden><div class="modal-card" role="dialog" aria-modal="true" id="modalCard"></div></div>
+
+  <script src="/js/app.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+{
+  "name": "nutstore",
+  "version": "1.0.0",
+  "description": "E-commerce store for an India-based nuts, seeds & healthy foods packer — Razorpay payments, guest checkout, customer accounts, admin order desk.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "reset-db": "node -e \"require('fs').rmSync('data/store.db',{force:true});console.log('Database removed; it will be re-seeded on next start.')\""
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^18.0.8",
+    "express": "^5.3.0",
+    "express-rate-limit": "^8.7.1",
+    "helmet": "^8.3.0",
+    "jsonwebtoken": "^9.0.3",
+    "razorpay": "^2.9.8"
+  }
+}
