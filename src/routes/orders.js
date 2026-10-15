@@ -6,6 +6,8 @@ const { db, tx } = require('../db');
 const config = require('../config');
 const { requireAuth } = require('../auth');
 const { str, isEmail, validateAddress } = require('../validate');
+const { quote: priceCart, httpErr } = require('../pricing');
+const settings = require('../settings');
 
 const router = express.Router();
 const rzp = config.razorpay.enabled
@@ -30,32 +32,6 @@ function newOrderNo() {
   return `NS${ymd}${crypto.randomInt(100000, 999999)}`;
 }
 
-// Prices always come from the database, never from the browser.
-function priceCart(items) {
-  if (!Array.isArray(items) || !items.length) throw httpErr(400, 'Your cart is empty.');
-  const merged = new Map();
-  for (const it of items.slice(0, 50)) {
-    const id = Number(it.variantId), qty = Math.floor(Number(it.qty));
-    if (!Number.isInteger(id) || !(qty > 0)) continue;
-    merged.set(id, Math.min((merged.get(id) || 0) + qty, 20));
-  }
-  if (!merged.size) throw httpErr(400, 'Your cart is empty.');
-  const get = db.prepare(`SELECT v.id,v.label,v.price,v.stock,p.name,p.is_active FROM variants v
-    JOIN products p ON p.id=v.product_id WHERE v.id=?`);
-  const lines = [];
-  for (const [id, qty] of merged) {
-    const v = get.get(id);
-    if (!v || !v.is_active) throw httpErr(400, 'An item in your cart is no longer available. Please review your cart.');
-    if (v.stock < qty) throw httpErr(409, `Only ${v.stock} left of ${v.name} (${v.label}). Please update your cart.`);
-    lines.push({ variantId: v.id, name: v.name, label: v.label, unitPrice: v.price, qty, lineTotal: v.price * qty });
-  }
-  const subtotal = lines.reduce((s, l) => s + l.lineTotal, 0);
-  const shipping = subtotal >= config.freeShippingAbove ? 0 : config.shippingFee;
-  return { lines, subtotal, shipping, total: subtotal + shipping };
-}
-
-function httpErr(status, message, extra) { return Object.assign(new Error(message), { status, extra }); }
-
 function applyStock(orderId) {
   const items = db.prepare('SELECT variant_id, qty FROM order_items WHERE order_id=?').all(orderId);
   const dec = db.prepare('UPDATE variants SET stock = MAX(stock - ?, 0) WHERE id=?');
@@ -75,14 +51,16 @@ function markPaid(order, paymentId) {
 }
 
 function serialize(o, { withToken = false } = {}) {
-  const items = db.prepare('SELECT variant_id,product_name,label,unit_price,qty,line_total FROM order_items WHERE order_id=?').all(o.id);
+  const items = db.prepare('SELECT variant_id,product_name,label,unit_price,qty,line_total,tax_rate,tax_amount,hsn FROM order_items WHERE order_id=?').all(o.id);
   return {
     orderNo: o.order_no, createdAt: o.created_at, status: o.status,
     paymentMethod: o.payment_method, paymentStatus: o.payment_status,
     name: o.name, email: o.email, phone: o.phone, address: JSON.parse(o.address),
     subtotal: o.subtotal, shipping: o.shipping, discount: o.discount, total: o.total,
+    taxTotal: o.tax_total, taxInclusive: !!o.tax_inclusive, codFee: o.cod_fee,
     paymentRef: o.razorpay_payment_id || null,
-    items: items.map((i) => ({ variantId: i.variant_id, name: i.product_name, label: i.label, unitPrice: i.unit_price, qty: i.qty, lineTotal: i.line_total })),
+    items: items.map((i) => ({ variantId: i.variant_id, name: i.product_name, label: i.label, unitPrice: i.unit_price, qty: i.qty, lineTotal: i.line_total,
+      taxRate: i.tax_rate, taxAmount: i.tax_amount, hsn: i.hsn })),
     ...(withToken ? { token: guestToken(o.order_no) } : {}),
   };
 }
@@ -109,7 +87,7 @@ async function razorpayPayload(o) {
   }
   return {
     keyId: config.razorpay.keyId, orderId: rzpOrderId, amount: o.total, currency: 'INR',
-    name: config.store.name, description: `Order ${o.order_no}`,
+    name: settings.all().store_name, description: `Order ${o.order_no}`,
     prefill: { name: o.name, email: o.email, contact: o.phone },
   };
 }
@@ -117,8 +95,7 @@ async function razorpayPayload(o) {
 // ---------- routes ----------
 router.post('/quote', (req, res, next) => {
   try {
-    const q = priceCart(req.body.items);
-    res.json({ ...q, codAvailable: config.codEnabled && q.total <= config.codMaxOrder });
+    res.json(priceCart(req.body.items, { state: str(req.body.state, 60) || null, paymentMethod: req.body.paymentMethod }));
   } catch (e) { next(e); }
 });
 
@@ -131,22 +108,24 @@ router.post('/', orderLimiter, async (req, res, next) => {
 
     const method = req.body.paymentMethod;
     if (!['online', 'cod'].includes(method)) throw httpErr(400, 'Choose a payment method.');
-    const quote = priceCart(req.body.items);
-    if (method === 'cod' && (!config.codEnabled || quote.total > config.codMaxOrder))
+    const quote = priceCart(req.body.items, { state: addr.state, paymentMethod: method });
+    if (method === 'cod' && !quote.codAvailable)
       throw httpErr(400, 'Cash on Delivery is not available for this order.');
     if (method === 'online' && !config.razorpay.enabled && !config.demoPayments)
       throw httpErr(503, 'Online payment is not configured yet. Please choose Cash on Delivery.');
 
     const orderNo = newOrderNo();
     const order = tx(() => {
-      const info = db.prepare(`INSERT INTO orders (order_no,user_id,email,phone,name,address,subtotal,shipping,total,payment_method,payment_status,status)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+      const info = db.prepare(`INSERT INTO orders (order_no,user_id,email,phone,name,address,subtotal,shipping,total,
+        tax_total,tax_inclusive,cod_fee,payment_method,payment_status,status)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
         orderNo, req.user?.id ?? null, email, addr.phone, addr.name, JSON.stringify(addr),
-        quote.subtotal, quote.shipping, quote.total, method,
+        quote.subtotal, quote.shipping, quote.total, quote.taxTotal, quote.taxInclusive ? 1 : 0, quote.codFee, method,
         method === 'cod' ? 'cod' : 'pending', method === 'cod' ? 'confirmed' : 'pending'
       );
-      const insItem = db.prepare(`INSERT INTO order_items (order_id,variant_id,product_name,label,unit_price,qty,line_total) VALUES (?,?,?,?,?,?,?)`);
-      for (const l of quote.lines) insItem.run(info.lastInsertRowid, l.variantId, l.name, l.label, l.unitPrice, l.qty, l.lineTotal);
+      const insItem = db.prepare(`INSERT INTO order_items (order_id,variant_id,product_name,label,unit_price,qty,line_total,tax_rate,tax_amount,hsn)
+        VALUES (?,?,?,?,?,?,?,?,?,?)`);
+      for (const l of quote.lines) insItem.run(info.lastInsertRowid, l.variantId, l.name, l.label, l.unitPrice, l.qty, l.lineTotal, l.taxRate, l.taxAmount, l.hsn);
       if (method === 'cod') applyStock(info.lastInsertRowid);
 
       if (req.user && req.body.saveAddress) {

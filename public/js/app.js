@@ -39,14 +39,15 @@
 
   function modal(html) {
     const m = $('#modal');
-    $('#modalCard').innerHTML = html; m.hidden = false;
+    $('#modalCard').style.maxWidth = ''; $('#modalCard').innerHTML = html; m.hidden = false;
     return { close: () => { m.hidden = true; $('#modalCard').innerHTML = ''; }, el: $('#modalCard') };
   }
 
   function showErrors(form, errors = {}) {
     $$('.field', form).forEach((f) => { f.classList.remove('invalid'); const e = $('.err', f); if (e) e.textContent = ''; });
     let first;
-    for (const [k, msg] of Object.entries(errors)) {
+    for (const [k, msg] of Object.entries(errors || {})) {
+      if (!msg) continue;
       const input = form.querySelector(`[name="${k}"]`);
       const f = input?.closest('.field');
       if (!f) continue;
@@ -115,7 +116,27 @@
     'dry-fruits': { slug: 'cat-dry', shape: 'almond', color: '#B9804E' },
     seeds: { slug: 'cat-seeds', shape: 'seed', color: '#6E8B4E' },
     'dates-berries': { slug: 'cat-dates', shape: 'date', color: '#6B3A22' },
-    'mixes-snacks': { slug: 'cat-mix', shape: 'makhana', color: '#E2C9A6' },
+    'healthy-snacks': { slug: 'cat-mix', shape: 'makhana', color: '#E2C9A6' },
+  };
+  const catArt = (c) => CAT_ART[c.slug] || { slug: c.slug, shape: 'mix', color: '#A0673A' };
+  // Real photo when the admin uploaded one, generated artwork otherwise
+  function pic(p, opts = {}) {
+    return p.image ? `<img class="art" src="${esc(p.image)}" alt="${esc(p.name)}" loading="lazy" style="width:100%;height:100%;object-fit:cover">` : art(p, opts);
+  }
+
+  // ---------- Category tree helpers ----------
+  function findCat(slug, nodes = state.categories, trail = []) {
+    for (const n of nodes) {
+      const path = [...trail, n];
+      if (n.slug === slug) return { node: n, path };
+      const hit = findCat(slug, n.children, path);
+      if (hit) return hit;
+    }
+    return null;
+  }
+  const taxNote = (rate) => {
+    const pct = (rate / 100).toLocaleString('en-IN');
+    return state.config.pricesIncludeTax ? (rate ? `Inclusive of ${pct}% GST` : 'Inclusive of all taxes') : (rate ? `+ ${pct}% GST at checkout` : 'No GST applicable');
   };
 
   // ================= State =================
@@ -132,7 +153,7 @@
     const next = Math.min(current + qty, 20, v.stock);
     if (next <= current) { toast(v.stock ? `Max ${Math.min(20, v.stock)} per item` : 'Out of stock'); return; }
     if (line) line.qty = next;
-    else state.cart.push({ variantId: v.id, qty: next, slug: p.slug, name: p.name, label: v.label, price: v.price, color: p.color, shape: p.shape });
+    else state.cart.push({ variantId: v.id, qty: next, slug: p.slug, name: p.name, label: v.label, price: v.price, color: p.color, shape: p.shape, image: p.image || null });
     saveCart();
     toast(`Added ${esc(p.name)} · ${esc(v.label)} <a href="/cart" data-link>View cart</a>`);
   }
@@ -191,9 +212,48 @@
   function setTitle(t) { document.title = t ? `${t} — ${state.config.store.name}` : `${state.config.store.name} — Nuts, Seeds & Dry Fruits`; }
 
   function highlightCategory(c, path) {
-    $$('#catNav .chip').forEach((ch) => ch.classList.toggle('active',
-      (path === '/shop' && (ch.dataset.cat || '') === (c || '')) || false));
+    const root = c ? findCat(c)?.path[0]?.slug : '';
+    $$('#catNav [data-cat]').forEach((ch) => ch.classList.toggle('active', path === '/shop' && ch.dataset.cat === (root ?? '')));
   }
+
+  // ---------- Header navigation: desktop mega menu + mobile drawer ----------
+  const caret = '<svg class="caret" viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  function buildNav() {
+    const roots = state.categories;
+    $('#catNav').innerHTML = `
+      <button type="button" class="chip menu-btn" id="menuBtn" aria-controls="drawer" aria-expanded="false">
+        <svg viewBox="0 0 20 20" width="15" height="15" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>Categories</button>
+      <a class="chip" data-cat="" href="/shop" data-link>All</a>
+      ${roots.map((r) => `<div class="nav-item"><a class="chip" data-cat="${r.slug}" href="/shop?c=${r.slug}" data-link>${esc(r.name)}${r.children.length ? caret : ''}</a>
+        ${r.children.length ? `<div class="mega"><div class="wrap"><div class="mega-grid">${r.children.map((c) => `
+          <div class="mega-col"><a class="mega-h" href="/shop?c=${c.slug}" data-link>${esc(c.name)} <span>${c.count}</span></a>
+            ${c.children.map((g) => `<a href="/shop?c=${g.slug}" data-link>${esc(g.name)}</a>`).join('')}
+            ${c.blurb && !c.children.length ? `<p>${esc(c.blurb)}</p>` : ''}</div>`).join('')}
+          <a class="mega-art" href="/shop?c=${r.slug}" data-link>${art(catArt(r), { label: r.name, count: 30 })}<span>Shop all ${esc(r.name)} →</span></a>
+        </div></div></div>` : ''}</div>`).join('')}
+      <a class="chip" href="/track" data-link>Track order</a>`;
+    const tree = (nodes, depth) => nodes.map((n) => n.children.length
+      ? `<details ${depth === 0 ? '' : ''}><summary><a href="/shop?c=${n.slug}" data-link>${esc(n.name)}</a><span class="count">${n.count}</span>${caret}</summary>
+          <div class="d-sub">${tree(n.children, depth + 1)}</div></details>`
+      : `<a class="d-leaf" href="/shop?c=${n.slug}" data-link>${esc(n.name)}<span class="count">${n.count}</span></a>`).join('');
+    $('#drawerNav').innerHTML = `<a class="d-leaf strong" href="/shop" data-link>All products</a>${tree(roots, 0)}
+      <hr class="rule"><a class="d-leaf" href="/track" data-link>Track your order</a><a class="d-leaf" href="/account" data-link>My account</a>
+      <a class="d-leaf" href="/pages/contact" data-link>Contact us</a>`;
+
+    const drawer = $('#drawer');
+    const open = () => { drawer.hidden = false; requestAnimationFrame(() => drawer.classList.add('open')); $('#menuBtn').setAttribute('aria-expanded', 'true'); document.body.style.overflow = 'hidden'; $('#drawerClose').focus(); };
+    const close = () => { drawer.classList.remove('open'); $('#menuBtn')?.setAttribute('aria-expanded', 'false'); document.body.style.overflow = ''; setTimeout(() => { drawer.hidden = true; }, 200); };
+    $('#menuBtn').onclick = open;
+    $('#drawerClose').onclick = close;
+    drawer.onclick = (e) => { if (e.target === drawer || e.target.closest('a[data-link]')) close(); };
+    document.onkeydown = (e) => { if (e.key === 'Escape' && !drawer.hidden) close(); };
+    // close the mega menu after choosing a link
+    const nav = $('.cat-nav');
+    nav.onclick = (e) => { if (e.target.closest('.mega a')) { nav.classList.add('suppress'); document.activeElement?.blur(); } };
+    nav.onmouseleave = () => nav.classList.remove('suppress');
+    $('#footCats').innerHTML = roots.map((c) => `<li><a href="/shop?c=${c.slug}" data-link>${esc(c.name)}</a></li>`).join('');
+  }
+  window.addEventListener('ns:categories-changed', buildNav);
 
   // ================= Shared fragments =================
   function productCard(p) {
@@ -201,7 +261,7 @@
     const off = pctOff(v);
     const allOut = p.variants.every((x) => x.stock <= 0);
     return `<article class="pcard" data-slug="${esc(p.slug)}">
-      <a class="thumb" href="/p/${esc(p.slug)}" data-link aria-label="${esc(p.name)}">${art(p)}${off ? `<span class="tag">${off}% OFF</span>` : ''}</a>
+      <a class="thumb" href="/p/${esc(p.slug)}" data-link aria-label="${esc(p.name)}">${pic(p)}${off ? `<span class="tag">${off}% OFF</span>` : ''}</a>
       <div class="body">
         <a class="name" href="/p/${esc(p.slug)}" data-link>${esc(p.name)}</a>
         <div class="short">${esc(p.short)}</div>
@@ -227,17 +287,21 @@
     });
   }
 
-  function summaryBox(q, { title = 'Order summary', lines = false } = {}) {
-    const cfg = state.config;
-    const remaining = Math.max(0, cfg.freeShippingAbove - q.subtotal);
-    const pct = Math.min(100, (q.subtotal / cfg.freeShippingAbove) * 100);
+  function summaryBox(q, { title = 'Order summary', lines = false, shipNote = '' } = {}) {
+    const free = q.freeShippingAbove;
+    const remaining = free > 0 ? Math.max(0, free - q.itemsValue) : 0;
+    const pct = free > 0 ? Math.min(100, (q.itemsValue / free) * 100) : 100;
+    const gst = q.taxBreakup.map((t) => `${(t.rate / 100).toLocaleString('en-IN')}%: ${money(t.amount)}`).join(' · ');
     return `<div class="card summary"><h3>${title}</h3>
-      ${lines ? q.lines.map((l) => `<div class="mini-line"><span>${esc(l.name)} · ${esc(l.label)} × ${l.qty}</span><span>${money(l.lineTotal)}</span></div>`).join('') + '<hr style="border:0;border-top:1px solid var(--line);margin:8px 0">' : ''}
+      ${lines ? q.lines.map((l) => `<div class="mini-line"><span>${esc(l.name)} · ${esc(l.label)} × ${l.qty}</span><span>${money(l.lineTotal)}</span></div>`).join('') + '<hr class="rule">' : ''}
       <div class="sum-row"><span>Subtotal</span><span>${money(q.subtotal)}</span></div>
-      <div class="sum-row"><span>Shipping</span><span>${q.shipping ? money(q.shipping) : '<b style="color:var(--ok)">FREE</b>'}</span></div>
+      ${!q.taxInclusive && q.taxTotal ? `<div class="sum-row"><span>GST</span><span>${money(q.taxTotal)}</span></div>` : ''}
+      <div class="sum-row"><span>Shipping${q.shippingZone !== 'Standard' ? ` <small class="muted">(${esc(q.shippingZone)})</small>` : ''}</span><span>${q.shipping ? money(q.shipping) : '<b style="color:var(--ok)">FREE</b>'}</span></div>
+      ${q.codFee ? `<div class="sum-row"><span>COD charges</span><span>${money(q.codFee)}</span></div>` : ''}
       ${remaining > 0 ? `<div class="small muted">Add ${money(remaining)} more for free shipping</div><div class="ship-meter"><i style="width:${pct}%"></i></div>` : ''}
+      ${shipNote ? `<div class="small muted">${shipNote}</div>` : ''}
       <div class="sum-row total"><span>Total</span><span>${money(q.total)}</span></div>
-      <div class="small muted">Prices include GST.</div>
+      ${q.taxTotal ? `<div class="small muted">${q.taxInclusive ? `Includes GST ${money(q.taxTotal)}` : `GST ${money(q.taxTotal)} added`}${gst ? ` (${gst})` : ''}</div>` : ''}
       <div id="summaryAction"></div></div>`;
   }
 
@@ -268,8 +332,8 @@
       <section class="wrap section" style="padding-top:0">
         <div class="section-head"><h2>Shop by category</h2><a href="/shop" data-link>View all →</a></div>
         <div class="cat-grid">${state.categories.map((c) => `
-          <a class="cat-card" href="/shop?c=${c.slug}" data-link>${art(CAT_ART[c.slug] || { slug: c.slug, shape: 'mix' }, { label: c.name })}
-            <h3>${esc(c.name)}</h3><span>${c.count} products</span></a>`).join('')}</div>
+          <a class="cat-card" href="/shop?c=${c.slug}" data-link>${art(catArt(c), { label: c.name })}
+            <h3>${esc(c.name)}</h3><span>${c.children.length ? `${c.children.map((x) => esc(x.name)).slice(0, 3).join(' · ')}` : `${c.count} products`}</span></a>`).join('')}</div>
       </section>
 
       <section class="wrap section" style="padding-top:0">
@@ -279,26 +343,50 @@
     bindCards($('#featGrid'), featured);
   });
 
+  function sideTree(nodes, activePath, depth = 0) {
+    return `<ul class="tree${depth ? ' sub' : ''}">${nodes.map((n) => {
+      const onPath = activePath.includes(n.slug);
+      const active = activePath[activePath.length - 1] === n.slug;
+      return `<li><a href="/shop?c=${n.slug}" data-link class="${active ? 'active' : onPath ? 'on-path' : ''}">${esc(n.name)} <span>${n.count}</span></a>
+        ${n.children.length && onPath ? sideTree(n.children, activePath, depth + 1) : ''}</li>`;
+    }).join('')}</ul>`;
+  }
+
   route(/^\/shop$/, async (_m, params) => {
     const c = params.get('c') || '';
     const q = params.get('q') || '';
+    const found = c ? findCat(c) : null;
+    if (c && !found) return view404();
     const qs = new URLSearchParams(); if (c) qs.set('category', c); if (q) qs.set('q', q);
     const products = await api('/api/products?' + qs);
-    const cat = state.categories.find((x) => x.slug === c);
+    const cat = found?.node;
+    const path = found?.path || [];
+    // sub-category chips: children of current, or siblings when at a leaf
+    const parent = path.length > 1 ? path[path.length - 2] : null;
+    const chipSet = cat ? (cat.children.length ? cat.children : (parent ? parent.children : [])) : state.categories;
     setTitle(cat ? cat.name : q ? `Search: ${q}` : 'Shop all');
     $('#searchInput').value = q;
     main.innerHTML = `<div class="wrap page">
-      <div class="crumbs"><a href="/" data-link>Home</a> / ${cat ? `<a href="/shop" data-link>Shop</a> / ${esc(cat.name)}` : 'Shop'}</div>
-      <div class="page-head"><h1>${q ? `Results for “${esc(q)}”` : esc(cat ? cat.name : 'All products')}</h1>
-        ${cat ? `<p class="muted">${esc(cat.blurb)}</p>` : ''}</div>
-      <div class="shop-bar"><span class="muted small">${products.length} product${products.length === 1 ? '' : 's'}</span>
-        <select id="sort" aria-label="Sort" class="chip" style="padding-right:8px">
-          <option value="">Sort: Featured</option><option value="low">Price: low to high</option><option value="high">Price: high to low</option><option value="name">Name A–Z</option>
-        </select></div>
-      <div class="grid" id="shopGrid"></div></div>`;
+      <div class="crumbs"><a href="/" data-link>Home</a> / <a href="/shop" data-link>Shop</a>${path.map((n, i) =>
+        i === path.length - 1 ? ` / <span>${esc(n.name)}</span>` : ` / <a href="/shop?c=${n.slug}" data-link>${esc(n.name)}</a>`).join('')}</div>
+      <div class="shop-layout">
+        <aside class="side-nav" aria-label="Browse categories"><h4>Categories</h4>
+          <a href="/shop" data-link class="all-link ${!cat ? 'active' : ''}">All products</a>${sideTree(state.categories, path.map((n) => n.slug))}</aside>
+        <div>
+          <div class="page-head"><h1>${q ? `Results for “${esc(q)}”` : esc(cat ? cat.name : 'All products')}</h1>
+            ${cat?.blurb ? `<p class="muted">${esc(cat.blurb)}</p>` : ''}</div>
+          ${!q && chipSet.length ? `<div class="subcats">${parent && !cat.children.length ? `<a class="chip" href="/shop?c=${parent.slug}" data-link>All ${esc(parent.name)}</a>` : ''}
+            ${chipSet.map((n) => `<a class="chip ${n.slug === c ? 'active' : ''}" href="/shop?c=${n.slug}" data-link>${esc(n.name)} <small>${n.count}</small></a>`).join('')}</div>` : ''}
+          <div class="shop-bar"><span class="muted small">${products.length} product${products.length === 1 ? '' : 's'}</span>
+            <select id="sort" aria-label="Sort" class="chip" style="padding-right:8px">
+              <option value="">Sort: Featured</option><option value="low">Price: low to high</option><option value="high">Price: high to low</option><option value="name">Name A–Z</option>
+            </select></div>
+          <div class="grid" id="shopGrid"></div>
+        </div>
+      </div></div>`;
     const draw = (list) => {
       $('#shopGrid').innerHTML = list.length ? list.map(productCard).join('')
-        : `<div class="empty" style="grid-column:1/-1"><h3>Nothing matched</h3><p class="muted">Try “almond”, “seeds” or “makhana”.</p><a class="btn" href="/shop" data-link>Browse all</a></div>`;
+        : `<div class="empty" style="grid-column:1/-1"><h3>Nothing here yet</h3><p class="muted">Try “almond”, “seeds” or “makhana”.</p><a class="btn" href="/shop" data-link>Browse all</a></div>`;
       bindCards($('#shopGrid'), list);
     };
     draw(products);
@@ -318,14 +406,14 @@
     let v = p.variants.find((x) => x.stock > 0) || p.variants[0];
     let qty = 1;
     main.innerHTML = `<div class="wrap page has-sticky">
-      <div class="crumbs"><a href="/" data-link>Home</a> / <a href="/shop?c=${p.category}" data-link>${esc(p.category_name)}</a> / ${esc(p.name)}</div>
+      <div class="crumbs"><a href="/" data-link>Home</a>${p.path.map((n) => ` / <a href="/shop?c=${n.slug}" data-link>${esc(n.name)}</a>`).join('')} / <span>${esc(p.name)}</span></div>
       <div class="pdp">
-        <div class="pdp-art">${art(p, { scale: 1.6, count: Math.round((DENSITY[p.shape] || 40) * 0.55) })}</div>
+        <div class="pdp-art">${pic(p, { scale: 1.6, count: Math.round((DENSITY[p.shape] || 40) * 0.55) })}</div>
         <div class="pdp-info">
           <h1>${esc(p.name)}</h1>
           <p class="muted">${esc(p.short)}</p>
           <div class="price-row" id="priceRow"></div>
-          <div class="tax-note">Inclusive of all taxes · Free shipping above ${money(state.config.freeShippingAbove)}</div>
+          <div class="tax-note">${taxNote(p.tax_rate)}${state.config.freeShippingAbove ? ` · Free shipping above ${money(state.config.freeShippingAbove)}` : ''}</div>
           <div class="opt-label">Pack size</div>
           <div class="variants" id="variants">${p.variants.map((x) => `
             <button type="button" class="variant" data-id="${x.id}" ${x.stock <= 0 ? 'disabled' : ''}>
@@ -340,7 +428,7 @@
             <div><span class="muted">Origin</span><b>${esc(p.origin || '—')}</b></div>
             <div><span class="muted">Shelf life</span><b>${esc(p.shelf_life || '—')}</b></div>
             <div><span class="muted">Packaging</span><b>Zip-lock, nitrogen flushed</b></div>
-            <div><span class="muted">Storage</span><b>Cool, dry place</b></div>
+            <div><span class="muted">${p.hsn ? 'HSN code' : 'Storage'}</span><b>${p.hsn ? esc(p.hsn) : 'Cool, dry place'}</b></div>
           </div>
           <h3>About this product</h3>
           <p class="muted">${esc(p.description)}</p>
@@ -397,12 +485,12 @@
       <div class="two-col">
         <div class="card" style="padding-top:6px;padding-bottom:6px">${state.cart.map((l) => `
           <div class="cart-line" data-id="${l.variantId}">
-            <a class="art" href="/p/${esc(l.slug)}" data-link>${art(l, { count: 14, scale: 1.4 })}</a>
+            <a class="art" href="/p/${esc(l.slug)}" data-link>${pic(l, { count: 14, scale: 1.4 })}</a>
             <div><a class="ttl" href="/p/${esc(l.slug)}" data-link>${esc(l.name)}</a><div class="meta">${esc(l.label)} · ${money(l.price)}</div>
               <div class="qty sm" style="margin-top:8px"><button type="button" data-act="dec" aria-label="Decrease">−</button><span>${l.qty}</span><button type="button" data-act="inc" aria-label="Increase">+</button></div></div>
             <div class="right"><b>${money(l.price * l.qty)}</b><button class="remove" type="button" data-act="rm">Remove</button></div>
           </div>`).join('')}</div>
-        <aside>${summaryBox(q)}</aside>
+        <aside>${quote ? summaryBox(q, { shipNote: state.config.shippingZones.length ? 'Shipping may vary by state — confirmed at checkout.' : '' }) : '<div class="card" id="summaryAction"></div>'}</aside>
       </div></div>`;
     $('#summaryAction').innerHTML = `<a class="btn btn-block" style="margin-top:16px" href="/checkout" data-link ${problem ? 'aria-disabled="true"' : ''}>Proceed to checkout</a>
       <a class="btn btn-ghost btn-block" style="margin-top:8px" href="/shop" data-link>Continue shopping</a>`;
@@ -466,17 +554,45 @@
             <label class="pay-opt ${onlineOk ? '' : 'disabled'}"><input type="radio" name="paymentMethod" value="online" ${onlineOk ? 'checked' : 'disabled'}>
               <span><b>Pay online</b><small>UPI, debit/credit cards, net banking, wallets — secured by Razorpay${cfg.demoPayments ? ' (demo mode)' : ''}</small></span></label>
             <label class="pay-opt ${codOk ? '' : 'disabled'}"><input type="radio" name="paymentMethod" value="cod" ${codOk ? (onlineOk ? '' : 'checked') : 'disabled'}>
-              <span><b>Cash on Delivery</b><small>${codOk ? 'Pay in cash or UPI when your order arrives' : `Available on orders up to ${money(cfg.codMaxOrder)}`}</small></span></label>
+              <span><b>Cash on Delivery</b><small id="codNote"></small></span></label>
             <div id="coError"></div>
           </section>
         </div>
-        <aside>${summaryBox(quote, { lines: true })}</aside>
+        <aside id="coAside"></aside>
       </form></div>`;
-    $('#summaryAction').innerHTML = `<button class="btn btn-almond btn-block" style="margin-top:16px" type="submit" form="coForm" id="placeBtn">Place order · ${money(quote.total)}</button>
-      <p class="small muted" style="margin:10px 0 0">By placing the order you agree to our <a href="/pages/terms" data-link>terms</a> and <a href="/pages/refunds" data-link>refund policy</a>.</p>`;
 
     const form = $('#coForm');
-    $('#savedAddr')?.addEventListener('change', () => { $('#addrFields').hidden = form.addrChoice.value !== 'new'; });
+    let busy = false;
+    const placeLabel = () => `Place order · ${money(quote.total)}`;
+    function drawSummary() {
+      $('#coAside').innerHTML = summaryBox(quote, { lines: true });
+      $('#summaryAction').innerHTML = `<button class="btn btn-almond btn-block" style="margin-top:16px" type="submit" form="coForm" id="placeBtn" ${busy ? 'disabled' : ''}>${busy ? 'Placing order…' : placeLabel()}</button>
+        <p class="small muted" style="margin:10px 0 0">By placing the order you agree to our <a href="/pages/terms" data-link>terms</a> and <a href="/pages/refunds" data-link>refund policy</a>.</p>`;
+      const cod = form.querySelector('input[value=cod]');
+      cod.disabled = !quote.codAvailable;
+      cod.closest('.pay-opt').classList.toggle('disabled', !quote.codAvailable);
+      if (cod.disabled && cod.checked) { cod.checked = false; const on = form.querySelector('input[value=online]'); if (!on.disabled) on.checked = true; }
+      $('#codNote').textContent = quote.codAvailable
+        ? `Pay in cash or UPI when your order arrives${quote.codFeeIfCod ? ` · ${money(quote.codFeeIfCod)} COD charge` : ''}`
+        : (cfg.codEnabled ? `Available on orders up to ${money(cfg.codMaxOrder)}` : 'Not available right now');
+    }
+    const currentState = () => {
+      const ch = form.addrChoice?.value;
+      if (ch && ch !== 'new') return addresses.find((a) => String(a.id) === ch)?.state;
+      return form.state.value;
+    };
+    async function requote() {
+      try {
+        quote = await api('/api/orders/quote', { method: 'POST', body: { items: cartItems(), state: currentState() || undefined, paymentMethod: form.paymentMethod.value || undefined } });
+        drawSummary();
+      } catch (e) { toast(esc(e.message), 4000); }
+    }
+    drawSummary();
+    if (currentState()) requote();
+    form.addEventListener('change', (e) => {
+      if (e.target.name === 'addrChoice') $('#addrFields').hidden = form.addrChoice.value !== 'new';
+      if (['state', 'addrChoice', 'paymentMethod'].includes(e.target.name)) requote();
+    });
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -492,7 +608,7 @@
       const method = fd.get('paymentMethod');
       $('#coError').innerHTML = '';
       if (!method) { $('#coError').innerHTML = '<div class="alert">Choose a payment method.</div>'; return; }
-      const btn = $('#placeBtn'); btn.disabled = true; btn.textContent = 'Placing order…';
+      busy = true; drawSummary();
       try {
         const res = await api('/api/orders', { method: 'POST', body: {
           items: cartItems(), email: fd.get('email') || undefined, address, paymentMethod: method, saveAddress: !!fd.get('saveAddress'),
@@ -504,7 +620,7 @@
         if (res.demo) return openDemoPay(res.orderNo, res.token, res.total);
         navigate(orderUrl + '&placed=1', { replace: true });
       } catch (err) {
-        btn.disabled = false; btn.textContent = `Place order · ${money(quote.total)}`;
+        busy = false; drawSummary();
         if (err.data?.errors) {
           if (choice && choice !== 'new' && !err.data.errors.email) { form.addrChoice.value = 'new'; $('#addrFields').hidden = false; }
           showErrors(form, err.data.errors);
@@ -582,9 +698,11 @@
         </div>
         <aside><div class="card summary"><h3>Bill details</h3>
           <div class="sum-row"><span>Subtotal</span><span>${money(o.subtotal)}</span></div>
+          ${!o.taxInclusive && o.taxTotal ? `<div class="sum-row"><span>GST</span><span>${money(o.taxTotal)}</span></div>` : ''}
           <div class="sum-row"><span>Shipping</span><span>${o.shipping ? money(o.shipping) : 'FREE'}</span></div>
+          ${o.codFee ? `<div class="sum-row"><span>COD charges</span><span>${money(o.codFee)}</span></div>` : ''}
           <div class="sum-row total"><span>Total</span><span>${money(o.total)}</span></div>
-          <div class="small muted">Inclusive of GST</div>
+          ${o.taxTotal ? `<div class="small muted">${o.taxInclusive ? 'Includes' : 'Includes added'} GST ${money(o.taxTotal)}</div>` : ''}
           <a class="btn btn-ghost btn-block" style="margin-top:16px" href="/shop" data-link>Continue shopping</a></div></aside>
       </div>`;
   }
@@ -752,77 +870,24 @@
     }
   });
 
-  // ---------- Admin desk ----------
-  route(/^\/admin$/, async (_m, params) => {
+  // ---------- Admin back office (loaded only when needed) ----------
+  route(/^\/admin$/, async (m, params) => {
     if (!state.user) return navigate('/login?next=/admin', { replace: true });
     if (state.user.role !== 'admin') return navigate('/account', { replace: true });
     setTitle('Admin');
-    const tab = params.get('tab') || 'orders';
-    const stats = await api('/api/admin/stats');
-    main.innerHTML = `<div class="wrap page">
-      <div class="page-head" style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center"><h1 style="margin:0">Order desk</h1>
-        <button class="btn btn-sm btn-ghost" id="logout">Log out</button></div>
-      <div class="stats">
-        <div class="stat"><b>${stats.today.n}</b><span>Orders today (${money(stats.today.amt)})</span></div>
-        <div class="stat"><b>${stats.toShip}</b><span>To pack & ship</span></div>
-        <div class="stat"><b>${stats.unpaid}</b><span>Awaiting online payment</span></div>
-        <div class="stat"><b>${stats.customers}</b><span>Registered customers</span></div>
-      </div>
-      <div class="tabs"><a class="chip ${tab === 'orders' ? 'active' : ''}" href="/admin" data-link>Orders</a>
-        <a class="chip ${tab === 'inventory' ? 'active' : ''}" href="/admin?tab=inventory" data-link>Inventory & prices${stats.lowStock.length ? ` (${stats.lowStock.length} low)` : ''}</a></div>
-      <div id="adminBody"></div></div>`;
-    $('#logout').onclick = async () => { await api('/api/auth/logout', { method: 'POST', body: {} }); state.user = null; updateHeader(); navigate('/'); };
-    const body = $('#adminBody');
-    const STATUSES = ['pending', 'confirmed', 'packed', 'shipped', 'delivered', 'cancelled'];
-
-    if (tab === 'orders') {
-      body.innerHTML = `<div class="shop-bar"><input class="chip" style="flex:1;min-width:200px;padding:9px 14px" id="aq" placeholder="Search order no., name, email, phone">
-        <select class="chip" id="as"><option value="">All statuses</option>${STATUSES.map((s) => `<option>${s}</option>`).join('')}</select></div><div id="aTable"></div>`;
-      const load = async () => {
-        const qs = new URLSearchParams({ q: $('#aq').value, status: $('#as').value });
-        const orders = await api('/api/admin/orders?' + qs);
-        $('#aTable').innerHTML = `<div class="table-wrap"><table><thead><tr><th>Order</th><th>Customer</th><th>Items</th><th>Total</th><th>Payment</th><th>Status</th></tr></thead><tbody>
-          ${orders.map((o) => `<tr><td><a href="/order/${o.orderNo}" data-link><b>${o.orderNo}</b></a><br><span class="small muted">${fmtDate(o.createdAt)}</span></td>
-            <td>${esc(o.name)}${o.guest ? ' <span class="status">guest</span>' : ''}<br><span class="small muted">${esc(o.phone)} · ${esc(o.address.city)} ${esc(o.address.pincode)}</span></td>
-            <td class="small">${o.items.map((i) => `${esc(i.name)} ${esc(i.label)} ×${i.qty}`).join('<br>')}</td>
-            <td><b>${money(o.total)}</b></td>
-            <td>${o.paymentMethod === 'cod' ? 'COD' : 'Online'}<br><span class="status ${o.paymentStatus === 'cod' ? 'confirmed' : o.paymentStatus}">${o.paymentStatus}</span></td>
-            <td><select data-order="${o.orderNo}" ${o.status === 'cancelled' ? 'disabled' : ''}>${STATUSES.map((s) => `<option ${s === o.status ? 'selected' : ''}>${s}</option>`).join('')}</select></td></tr>`).join('')
-          || '<tr><td colspan="6" class="muted">No orders found.</td></tr>'}</tbody></table></div>`;
-        $$('select[data-order]', body).forEach((sel) => sel.addEventListener('change', async () => {
-          if (sel.value === 'cancelled' && !confirm(`Cancel order ${sel.dataset.order}? Stock will be returned.`)) { load(); return; }
-          try { const r = await api(`/api/admin/orders/${sel.dataset.order}`, { method: 'PATCH', body: { status: sel.value } }); toast(r.note ? esc(r.note) : `Marked ${sel.value}`, r.note ? 6000 : 2200); }
-          catch (e) { toast(esc(e.message), 4000); }
-          load();
-        }));
-      };
-      let deb; $('#aq').addEventListener('input', () => { clearTimeout(deb); deb = setTimeout(load, 250); });
-      $('#as').addEventListener('change', load);
-      await load();
-    } else {
-      const inv = await api('/api/admin/inventory');
-      body.innerHTML = `<div class="table-wrap"><table><thead><tr><th>Product</th><th>SKU</th><th>Price ₹</th><th>MRP ₹</th><th>Stock</th><th></th></tr></thead><tbody>
-        ${inv.map((v) => `<tr data-id="${v.id}"><td><b>${esc(v.name)}</b><br><span class="small muted">${esc(v.label)}</span></td><td class="small">${esc(v.sku)}</td>
-          <td><input name="price" type="number" min="1" step="1" value="${v.price / 100}"></td><td><input name="mrp" type="number" min="1" step="1" value="${v.mrp / 100}"></td>
-          <td><input name="stock" type="number" min="0" step="1" value="${v.stock}" class="${v.stock < 15 ? 'low' : ''}"></td>
-          <td><button class="btn btn-sm">Save</button></td></tr>`).join('')}</tbody></table></div>`;
-      body.addEventListener('click', async (e) => {
-        const b = e.target.closest('button'); if (!b) return;
-        const tr = b.closest('tr'); const val = (n) => $(`[name=${n}]`, tr).value;
-        try { await api(`/api/admin/inventory/${tr.dataset.id}`, { method: 'PATCH', body: { price: val('price'), mrp: val('mrp'), stock: val('stock') } }); toast('Saved'); }
-        catch (err) { toast(esc(err.message), 3500); }
-      });
-    }
+    await loadScript('/js/admin.js');
+    await window.NSAdmin(m, params);
   });
 
   // ---------- Policy pages (Razorpay requires these to activate your account) ----------
   const PAGES = {
     contact: ['Contact us', (s) => `<p>We're happy to help with orders, bulk and corporate gifting enquiries.</p>
       <ul><li><b>Email:</b> ${esc(s.supportEmail)}</li><li><b>Phone / WhatsApp:</b> ${esc(s.supportPhone)} (Mon–Sat, 10am–6pm IST)</li>
-      <li><b>Registered address:</b> [Your business address, City, State, PIN]</li></ul>`],
+      <li><b>Registered address:</b> ${esc(s.address || '[Add your business address in Admin → Settings]')}</li></ul>`],
     shipping: ['Shipping policy', () => `<ul><li>We ship across India through reputed courier partners.</li>
       <li>Orders are packed and dispatched within 1–2 business days. Delivery usually takes 3–7 business days depending on your PIN code.</li>
-      <li>Shipping is free on orders above ${money(state.config.freeShippingAbove)}; a flat fee of ${money(state.config.shippingFee)} applies below that.</li>
+      <li>Standard shipping is ${money(state.config.shippingFee)}${state.config.freeShippingAbove ? `, free on orders above ${money(state.config.freeShippingAbove)}` : ''}.</li>
+      ${state.config.shippingZones.map((z) => `<li><b>${esc(z.name)}</b> (${z.states.map(esc).join(', ')}): ${money(z.fee)}${z.freeAbove ? `, free above ${money(z.freeAbove)}` : ''}.</li>`).join('')}
       <li>You'll receive tracking details by email once your order ships. You can also check status on the <a href="/track" data-link>Track order</a> page.</li></ul>`],
     refunds: ['Cancellation & refund policy', () => `<h2>Cancellations</h2><p>You can cancel an order before it is shipped by contacting us with your order number. Prepaid cancellations are refunded in full.</p>
       <h2>Returns</h2><p>Because these are food products, we can't accept returns of opened packs. If your order arrives damaged, incorrect or past its best-before date, write to us within 48 hours of delivery with photos and we'll replace it or refund you.</p>
@@ -844,6 +909,9 @@
     main.innerHTML = `<div class="wrap page"><div class="empty"><h2>Page not found</h2><p class="muted">That page may have moved.</p><a class="btn" href="/" data-link>Go home</a></div></div>`;
   }
 
+  // Shared helpers for the lazily loaded admin module
+  window.NS = { $, $$, esc, money, fmtDate, api, toast, modal, showErrors, field, art, pic, GLYPH, state, navigate, setTitle, main };
+
   // ================= Boot =================
   $('#searchForm').addEventListener('submit', (e) => {
     e.preventDefault();
@@ -860,10 +928,7 @@
     $('#footLegal').textContent = [s.fssai && `FSSAI Lic. No. ${s.fssai}`, s.gstin && `GSTIN ${s.gstin}`].filter(Boolean).join(' · ');
     $('#footBase').textContent = `© ${new Date().getFullYear()} ${s.name}. All prices in INR, inclusive of GST.`;
     $('#announce').textContent = `Free shipping above ${money(config.freeShippingAbove)}${config.codEnabled ? ' · Cash on Delivery available' : ''} · Packed fresh every week`;
-    $('#catNav').innerHTML = `<a class="chip" data-cat="" href="/shop" data-link>All</a>` +
-      categories.map((c) => `<a class="chip" data-cat="${c.slug}" href="/shop?c=${c.slug}" data-link>${esc(c.name)}</a>`).join('') +
-      `<a class="chip" href="/track" data-link>Track order</a>`;
-    $('#footCats').innerHTML = categories.map((c) => `<li><a href="/shop?c=${c.slug}" data-link>${esc(c.name)}</a></li>`).join('');
+    buildNav();
     updateHeader(); updateCartBadge();
     await render();
   }

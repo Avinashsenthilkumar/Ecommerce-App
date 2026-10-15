@@ -26,17 +26,6 @@ module.exports = {
   jwtSecret,
   razorpay,
   demoPayments,
-  store: {
-    name: process.env.STORE_NAME || 'Kernel & Co.',
-    tagline: process.env.STORE_TAGLINE || 'Honest nuts, seeds & dry fruits — packed fresh in India',
-    supportEmail: process.env.SUPPORT_EMAIL || 'support@example.com',
-    supportPhone: process.env.SUPPORT_PHONE || '+91 90000 00000',
-    gstin: process.env.STORE_GSTIN || '',
-    fssai: process.env.STORE_FSSAI || '',
-  },
-  // Shipping rules (paise)
-  freeShippingAbove: Number(process.env.FREE_SHIPPING_ABOVE || 499) * 100,
-  shippingFee: Number(process.env.SHIPPING_FEE || 49) * 100,
-  codEnabled: process.env.COD_ENABLED !== 'false',
-  codMaxOrder: Number(process.env.COD_MAX_ORDER || 5000) * 100,
+  // Store details, shipping, COD and tax settings live in the database (src/settings.js)
+  // and are edited from Admin → Settings / Shipping. .env values are first-run defaults.
 };

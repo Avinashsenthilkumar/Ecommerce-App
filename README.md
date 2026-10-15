@@ -8,13 +8,16 @@ A complete, mobile-first e-commerce site for an India-based packer of nuts, seed
 
 | Area | What's included |
 |---|---|
-| Storefront | Home, category pages, search, sort, product pages with pack-size variants (250 g / 500 g / 1 kg), MRP vs price and % off, stock limits, related products |
+| Storefront | Home, search, sort, product pages with pack-size variants (250 g / 500 g / 1 kg), MRP vs price and % off, GST note, stock limits, related products, product photos (or generated artwork) |
+| Multi-level categories | Unlimited nesting (e.g. Healthy Snacks › Makhana › Flavoured Makhana). Desktop mega-menu, mobile slide-in drawer, sidebar tree, sub-category chips and full breadcrumbs. Parent pages include products from all sub-categories |
 | Cart | Persistent cart (survives refresh), quantity changes, free-shipping progress meter, server-side price re-check |
 | Checkout | **Guest checkout** (email only) or logged-in checkout with saved addresses; Indian address validation (36 states/UTs, 6-digit PIN, 10-digit mobile) |
 | Payments | **Razorpay** (UPI, cards, net banking, wallets) with server-side signature verification + webhook; **Cash on Delivery** with a configurable order cap; retry payment for unpaid orders |
 | Accounts | Self-registration, login/logout, profile & password change, order history, saved addresses. Guest orders are auto-linked when that email registers later |
 | Order tracking | Guests track with order no. + email; secure per-order link; status timeline (confirmed → packed → shipped → delivered) |
-| Admin desk | `/admin` — today's sales, orders to ship, search/filter orders, change status (cancel restores stock), edit price/MRP/stock, low-stock flag |
+| Admin back office | `/admin` with tabs: **Orders** (search, status, cancel restores stock) · **Products** (create/edit/delete, photo upload, pack sizes with price/MRP/stock/SKU, GST class, HSN, live/featured toggles) · **Categories** (add/edit/nest/hide/delete with safety checks) · **Stock & prices** (bulk grid, +/- stock adjustments, low-stock filter) · **Taxes** (GST classes, default class, prices incl./excl. GST) · **Shipping** (standard fee, free-shipping threshold, COD on/off, COD limit & charge, state-based zones) · **Settings** (store name, contacts, address, GSTIN, FSSAI) |
+| GST | Per-product tax class; tax computed per line, stored on each order line with rate and HSN code; summary by rate shown at checkout. Works with tax-inclusive (default) or tax-exclusive pricing |
+| Shipping | Standard fee + free-above threshold, plus zones by state (seeded: North-East & Islands, J&K & Ladakh). Checkout recalculates as soon as the customer picks a state |
 | Compliance | Contact, shipping, cancellation & refund, privacy, terms pages (Razorpay requires these for account activation); FSSAI & GSTIN shown in footer |
 | Security | Prices always computed on the server, bcrypt passwords, httpOnly JWT cookie, JSON-only API (CSRF guard), rate limits on login/orders, Helmet CSP, timing-safe signature checks |
 
@@ -28,7 +31,8 @@ npm start                 # http://localhost:3000
 
 * Admin: `admin@example.com` / `ChangeMe@123` (set `ADMIN_EMAIL` / `ADMIN_PASSWORD` in `.env` **before first start**).
 * Without Razorpay keys, "Pay online" opens a **demo payment** window so you can test the whole flow. Demo mode is switched off automatically when `NODE_ENV=production`.
-* `npm run reset-db` deletes the database; it re-seeds 16 sample products on next start.
+* `npm run reset-db` deletes the database; it re-seeds 16 sample products in a 3-level category tree on next start. Existing databases are upgraded automatically (new columns are added on start).
+* Uploaded product photos are stored in `data/uploads/` — back this folder up together with `data/store.db`.
 
 ## Going live with Razorpay
 
@@ -48,24 +52,26 @@ Any Node 22.13+ host works (Render, Railway, a VPS with PM2 + Nginx, AWS Lightsa
 
 ```
 server.js              Express app, security headers, routing
-src/config.js          env-driven settings (store details, shipping, COD, Razorpay)
+src/config.js          env settings (port, secrets, Razorpay)
+src/settings.js        admin-editable store/shipping/COD/tax settings
+src/pricing.js         cart pricing: GST per line, zone shipping, COD fee
+src/categories.js      category tree helpers
 src/db.js              schema + seed catalogue + admin user
 src/auth.js            session cookie / role middleware
 src/validate.js        Indian address, phone, PIN validation
 src/routes/catalog.js  categories, products, public config
 src/routes/account.js  register, login, profile, addresses
 src/routes/orders.js   quote, place order, Razorpay verify/webhook, tracking
-src/routes/admin.js    stats, order status, inventory
-public/                storefront (index.html, css/style.css, js/app.js)
+src/routes/admin.js    back-office APIs: orders, products, categories, uploads, stock, taxes, zones, settings
+public/                storefront (index.html, css/style.css, js/app.js) + js/admin.js (loaded only for admins)
 ```
 
 ## Customising
 
-* **Brand:** `STORE_NAME`, tagline, support contacts, FSSAI, GSTIN in `.env`; colours are CSS variables at the top of `public/css/style.css`.
-* **Products:** edit the seed list in `src/db.js` (then `npm run reset-db`), or change prices/stock live from the admin desk.
-* **Product images:** the site generates illustrated artwork per product so it looks complete out of the box. To use real photos, add an `image` column to `products` and render `<img>` in `productCard()` / the product page in `app.js`.
-* **Shipping rules:** `FREE_SHIPPING_ABOVE`, `SHIPPING_FEE`, `COD_ENABLED`, `COD_MAX_ORDER`.
+* **Everything operational** (catalogue, categories, prices, stock, GST, shipping, COD, store details) is managed in the admin back office. Values in `.env` are only first-run defaults.
+* **Brand colours** are CSS variables at the top of `public/css/style.css`.
+* **GST rates & HSN codes** in the sample data are placeholders — confirm them with the client's CA before going live.
 
 ## Suggested next steps
 
-Order emails/SMS (e.g. SES, MSG91), shipping integration (Shiprocket/Delhivery) with AWB tracking, coupon codes, GST tax invoices (PDF), password reset by email, product photo upload in admin, and Salesforce sync (Commerce Cloud or Service Cloud for orders & customers) if the client runs Salesforce.
+Order emails/SMS (e.g. SES, MSG91), shipping integration (Shiprocket/Delhivery) with AWB tracking, coupon codes, GST tax invoices (PDF — the per-line GST and HSN data is already stored), bulk CSV product import, password reset by email, product photo upload in admin, and Salesforce sync (Commerce Cloud or Service Cloud for orders & customers) if the client runs Salesforce.

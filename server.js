@@ -35,7 +35,8 @@ app.use(helmet({
 // Webhook needs the raw body to verify Razorpay's signature — register before express.json()
 app.post('/api/payments/razorpay-webhook', express.raw({ type: 'application/json', limit: '1mb' }), orders.webhook);
 
-app.use(express.json({ limit: '100kb' }));
+app.use('/api/admin/uploads', express.json({ limit: '5mb' })); // product images (base64)
+app.use(express.json({ limit: '200kb' }));
 app.use(cookieParser());
 app.use(attachUser);
 
@@ -52,6 +53,7 @@ app.use('/api/orders', orders.router);
 app.use('/api/admin', admin);
 app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }));
 
+app.use('/uploads', express.static(path.join(__dirname, 'data', 'uploads'), { maxAge: '30d', immutable: true, fallthrough: false }));
 app.use(express.static(path.join(__dirname, 'public'), { maxAge: config.isProd ? '1h' : 0 }));
 // Single-page app: every non-API route serves index.html
 app.get('/{*splat}', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
@@ -67,7 +69,7 @@ app.use((err, _req, res, _next) => {
 });
 
 app.listen(config.port, () => {
-  console.log(`${config.store.name} running at http://localhost:${config.port}`);
+  console.log(`Store running at http://localhost:${config.port}`);
   console.log(config.razorpay.enabled ? 'Razorpay: live/test keys loaded'
     : config.demoPayments ? 'Razorpay keys not set — DEMO payments enabled for local testing' : 'Razorpay not configured — COD only');
 });
